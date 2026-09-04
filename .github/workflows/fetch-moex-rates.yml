@@ -10,21 +10,76 @@ on:
 permissions:
   contents: write
 
+# Prevent two fetch jobs from modifying rates.json simultaneously.
+concurrency:
+  group: fetch-moex-rates
+  cancel-in-progress: false
+
 jobs:
   fetch:
     runs-on: ubuntu-latest
 
+    # Hard upper bound for the entire job.
+    timeout-minutes: 120
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
       - name: Fetch complete MOEX rates.json
-        run: python scripts/fetch_moex_rates.py
+        shell: bash
+        run: |
+          set -u
+
+          MAX_ATTEMPTS=10
+          ATTEMPT_TIMEOUT=10m
+          RETRY_DELAY=30
+
+          for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
+            echo "========================================"
+            echo "Fetch attempt $attempt/$MAX_ATTEMPTS"
+            echo "========================================"
+
+            # Remove a temporary file that may have been left behind
+            # by a killed or otherwise failed previous attempt.
+            rm -f data/rates.json.tmp
+
+            set +e
+
+            timeout \
+              --signal=TERM \
+              --kill-after=30s \
+              "$ATTEMPT_TIMEOUT" \
+              python -u scripts/fetch_moex_rates.py
+
+            exit_code=$?
+
+            set -e
+
+            if [ "$exit_code" -eq 0 ]; then
+              echo "Fetch completed successfully."
+              exit 0
+            fi
+
+            if [ "$exit_code" -eq 124 ]; then
+              echo "Fetch attempt timed out after $ATTEMPT_TIMEOUT."
+            else
+              echo "Fetch attempt failed with exit code $exit_code."
+            fi
+
+            if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+              echo "Restarting complete fetch in ${RETRY_DELAY}s..."
+              sleep "$RETRY_DELAY"
+            fi
+          done
+
+          echo "ERROR: Fetch failed after $MAX_ATTEMPTS attempts."
+          exit 1
 
       - name: Commit rates.json
         shell: bash
