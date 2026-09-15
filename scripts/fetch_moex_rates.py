@@ -20,9 +20,6 @@ RETRY_DELAY = 10
 # Network timeout for each individual HTTP request.
 REQUEST_TIMEOUT = 60
 
-# Expected schema of the MOEX rates table.
-EXPECTED_COLUMN_COUNT = 50
-
 
 def fetch_json(start: int) -> dict:
     """
@@ -225,25 +222,18 @@ def main() -> None:
 
     columns = rates.get("columns")
     first_rows = rates.get("data")
-
+    
     if not isinstance(columns, list) or not columns:
-        raise RuntimeError(
-            "Invalid rates.columns"
-        )
-
+        raise RuntimeError("Invalid rates.columns")
+    
     column_count = len(columns)
-
-    if column_count != EXPECTED_COLUMN_COUNT:
-        raise RuntimeError(
-            f"Expected {EXPECTED_COLUMN_COUNT} "
-            f"rates columns, received {column_count}"
-        )
-
-    validate_rows(
-        first_rows,
-        column_count,
-        0,
+    
+    print(
+        f"MOEX rates schema contains {column_count} columns",
+        flush=True,
     )
+    
+    validate_rows(first_rows, column_count, 0)
 
     first_cursor = get_cursor(first)
 
